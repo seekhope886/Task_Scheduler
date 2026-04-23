@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 Control Center</title>
+
+<!-- 引用外部資源：Font Awesome 圖標 -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.2/css/all.min.css">
+
+<style>
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  /* 引用外部資源：隨機工業風背景圖 */
+  background: linear-gradient(rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.8)), 
+              url('https://plus.unsplash.com/premium_vector-1768385913705-416c6e312f2a?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxpbGx1c3RyYXRpb25zLWZlZWR8Mjk0fHx8ZW58MHx8fHx8');
+  background-size: cover;
+  background-attachment: fixed;
+  color: #e2e8f0;
+  text-align: center;
+  margin: 0;
+  padding: 20px;
+}
+
+h1 { 
+  margin: 20px; 
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+  letter-spacing: 2px;
+}
+
+.task {
+  margin: 30px auto;
+  padding: 25px;
+  width: 95%;
+  max-width: 1100px;
+  /* 玻璃擬態效果 */
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+h2 { color: #3b82f6; margin-top: 0; }
+
+table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  margin: auto;
+  font-size: 11px;
+}
+
+td, th {
+  border: none;
+  padding: 4px;
+}
+
+th { color: #94a3b8; font-weight: normal; }
+
+.cell {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.active {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.inactive {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cell:hover { transform: scale(1.2); z-index: 10; }
+
+.current-hour {
+  outline: 2px solid #facc15;
+  box-shadow: 0 0 12px #facc15;
+}
+
+.status {
+  margin-bottom: 20px;
+  padding: 10px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  display: inline-block;
+}
+
+.running { color: #4ade80; text-shadow: 0 0 5px rgba(74, 222, 128, 0.5); }
+.stopped { color: #f87171; }
+
+button {
+  margin: 20px;
+  padding: 12px 30px;
+  background: #3b82f6;
+  border: none;
+  color: white;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+}
+
+button:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+}
+
+/* 針對小螢幕優化 */
+@media (max-width: 600px) {
+  .cell { width: 15px; height: 15px; }
+  table { font-size: 9px; }
+}
+</style>
+</head>
+
+<body>
+
+<h1><i class="fas fa-microchip"></i> Industrial Scheduler</h1>
+
+<div id="tasks"></div>
+
+<button onclick="save()"><i class="fas fa-save"></i> Save Settings</button>
+
+<script>
+
+const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+let data=null;
+let isDragging=false;
+let dragValue=true;
+let currentHour=-1;
+let currentDay=-1;
+
+async function load(){
+  const res=await fetch("/get");
+  data=await res.json();
+  render();
+}
+
+function render(){
+  const container=document.getElementById("tasks");
+  container.innerHTML="";
+
+  data.tasks.forEach((task,tIndex)=>{
+
+    const div=document.createElement("div");
+    div.className="task";
+
+    const title=document.createElement("h2");
+    title.innerText=task.name;
+    div.appendChild(title);
+
+    const status=document.createElement("div");
+    status.className="status";
+    status.id="status_"+tIndex;
+    div.appendChild(status);
+
+    const table=document.createElement("table");
+
+    let header="<tr><th></th>";
+    for(let h=0;h<24;h++)
+      header+=`<th>${h}</th>`;
+    header+="</tr>";
+    table.innerHTML=header;
+
+    for(let d=0;d<7;d++){
+      let row=`<tr><th>${days[d]}</th>`;
+      for(let h=0;h<24;h++){
+        const active=task.week[d][h];
+        row+=`<td>
+        <div class="cell ${active?'active':'inactive'}"
+          onmousedown="startDrag(${tIndex},${d},${h})"
+          onmouseover="drag(${tIndex},${d},${h})"
+          onmouseup="stopDrag()"
+          id="c_${tIndex}_${d}_${h}">
+        </div></td>`;
+      }
+      row+="</tr>";
+      table.innerHTML+=row;
+    }
+
+    div.appendChild(table);
+    container.appendChild(div);
+  });
+
+  highlightCurrent();
+  updateStatus();
+}
+
+function startDrag(t,d,h){
+  isDragging=true;
+  dragValue=!data.tasks[t].week[d][h];
+  setCell(t,d,h,dragValue);
+}
+
+function drag(t,d,h){
+  if(isDragging)
+    setCell(t,d,h,dragValue);
+}
+
+function stopDrag(){
+  isDragging=false;
+}
+
+function setCell(t,d,h,value){
+  data.tasks[t].week[d][h]=value;
+  document.getElementById(`c_${t}_${d}_${h}`)
+    .className="cell "+(value?"active":"inactive");
+}
+
+async function save(){
+  const res = await fetch("/set",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(data)
+  });
+
+  data = await res.json();
+  render();
+  updateStatus();
+}
+
+async function updateStatus(){
+  const res=await fetch("/status");
+  const statusData=await res.json();
+
+  statusData.forEach((s,i)=>{
+    const el=document.getElementById("status_"+i);
+    el.innerHTML=
+      `State: <span class="${s.running?'running':'stopped'}">
+       ${s.running?'RUNNING':'STOPPED'}
+       </span> | Next Start: ${s.next}`;
+  });
+}
+
+function highlightCurrent(){
+  const now=new Date();
+  currentHour=now.getHours();
+  currentDay=now.getDay();
+
+  data.tasks.forEach((task,t)=>{
+    const id=`c_${t}_${currentDay}_${currentHour}`;
+    const el=document.getElementById(id);
+    if(el) el.classList.add("current-hour");
+  });
+}
+
+document.body.onmouseup=stopDrag;
+
+load();
+setInterval(updateStatus,30000);
+
+</script>
+
+</body>
+</html>
