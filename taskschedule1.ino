@@ -638,7 +638,7 @@ void setup()
    WiFi.setTxPower(WIFI_POWER_8_5dBm);     
    WiFiManager wm;
    wm.setConnectTimeout(30); 
-   if (!wm.autoConnect("ESP32_InfoST_AP")) {
+   if (!wm.autoConnect("ESP32_SCHED_AP")) {
         ESP.restart();
       }
 #ifdef serialDSP      
